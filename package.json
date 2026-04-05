@@ -1,0 +1,29 @@
+{
+  "name": "skills-for-nodered",
+  "version": "1.0.0",
+  "description": "AI agent skills for Node-RED flow development — Claude Code and GitHub Copilot",
+  "author": "Akash Talole",
+  "license": "MIT",
+  "keywords": [
+    "node-red",
+    "nodered",
+    "claude-code",
+    "github-copilot",
+    "ai-agent",
+    "agent-skills",
+    "iot",
+    "flow-programming",
+    "automation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/akashtalole/Skills-for-NodeRED.git"
+  },
+  "homepage": "https://github.com/akashtalole/Skills-for-NodeRED#readme",
+  "bugs": {
+    "url": "https://github.com/akashtalole/Skills-for-NodeRED/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

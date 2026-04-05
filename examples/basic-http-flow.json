@@ -1,0 +1,161 @@
+[
+  {
+    "id": "tab-http-api",
+    "type": "tab",
+    "label": "HTTP API",
+    "disabled": false,
+    "info": "## HTTP API Flow\n\nProvides a simple REST API with two endpoints:\n- `POST /api/data` — accepts a JSON payload, validates it, and returns a confirmation\n- `GET /api/health` — returns a health check response\n\n**Environment Variables:**\n- `API_VERSION` — API version string (default: v1)\n\n**Dependencies:** None (core nodes only)"
+  },
+  {
+    "id": "comment-http",
+    "type": "comment",
+    "name": "HTTP REST API — POST /api/data and GET /api/health",
+    "info": "Example HTTP flow demonstrating: http in, validation, change, template, http response, and catch nodes.",
+    "x": 140,
+    "y": 40,
+    "z": "tab-http-api",
+    "wires": []
+  },
+  {
+    "id": "http-in-data",
+    "type": "http in",
+    "name": "POST /api/data",
+    "url": "/api/data",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 120,
+    "y": 120,
+    "z": "tab-http-api",
+    "wires": [["validate-input"]]
+  },
+  {
+    "id": "validate-input",
+    "type": "function",
+    "name": "Validate Input",
+    "func": "const body = msg.payload;\nconst errors = [];\n\nif (!body || typeof body !== 'object') {\n    errors.push('Request body must be a JSON object');\n} else {\n    if (!body.id) errors.push('id is required');\n    if (body.value === undefined) errors.push('value is required');\n    if (body.value !== undefined && typeof body.value !== 'number') {\n        errors.push('value must be a number');\n    }\n}\n\nif (errors.length > 0) {\n    msg.statusCode = 400;\n    msg.payload = { success: false, errors: errors };\n    return [null, msg];  // output 2: validation error\n}\n\nmsg.validatedAt = new Date().toISOString();\nreturn [msg, null];  // output 1: valid",
+    "outputs": 2,
+    "x": 300,
+    "y": 120,
+    "z": "tab-http-api",
+    "wires": [["process-data"], ["http-response-data"]]
+  },
+  {
+    "id": "process-data",
+    "type": "function",
+    "name": "Process and Enrich Payload",
+    "func": "const apiVersion = env.get('API_VERSION') || 'v1';\n\nmsg.payload = {\n    success: true,\n    api_version: apiVersion,\n    received: {\n        id: msg.payload.id,\n        value: msg.payload.value,\n        timestamp: msg.validatedAt\n    },\n    processed_at: new Date().toISOString()\n};\n\nmsg.statusCode = 200;\nmsg.headers = { 'Content-Type': 'application/json' };\nreturn msg;",
+    "outputs": 1,
+    "x": 500,
+    "y": 120,
+    "z": "tab-http-api",
+    "wires": [["http-response-data"]]
+  },
+  {
+    "id": "http-response-data",
+    "type": "http response",
+    "name": "Send Response",
+    "statusCode": "",
+    "headers": {},
+    "x": 700,
+    "y": 120,
+    "z": "tab-http-api",
+    "wires": []
+  },
+  {
+    "id": "http-in-health",
+    "type": "http in",
+    "name": "GET /api/health",
+    "url": "/api/health",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 120,
+    "y": 240,
+    "z": "tab-http-api",
+    "wires": [["build-health-response"]]
+  },
+  {
+    "id": "build-health-response",
+    "type": "function",
+    "name": "Build Health Response",
+    "func": "msg.payload = {\n    status: 'ok',\n    uptime: process.uptime(),\n    timestamp: new Date().toISOString(),\n    version: env.get('API_VERSION') || 'v1'\n};\nmsg.statusCode = 200;\nreturn msg;",
+    "outputs": 1,
+    "x": 320,
+    "y": 240,
+    "z": "tab-http-api",
+    "wires": [["http-response-health"]]
+  },
+  {
+    "id": "http-response-health",
+    "type": "http response",
+    "name": "Send Health Response",
+    "statusCode": "",
+    "headers": {},
+    "x": 540,
+    "y": 240,
+    "z": "tab-http-api",
+    "wires": []
+  },
+  {
+    "id": "catch-http-errors",
+    "type": "catch",
+    "name": "Catch All HTTP Errors",
+    "scope": null,
+    "uncaught": false,
+    "x": 140,
+    "y": 360,
+    "z": "tab-http-api",
+    "wires": [["set-500-response"]]
+  },
+  {
+    "id": "set-500-response",
+    "type": "change",
+    "name": "Set 500 Error Response",
+    "rules": [
+      {
+        "t": "set",
+        "p": "statusCode",
+        "pt": "msg",
+        "to": "500",
+        "tot": "num"
+      },
+      {
+        "t": "set",
+        "p": "payload",
+        "pt": "msg",
+        "to": "{\"success\":false,\"error\":\"Internal server error\"}",
+        "tot": "json"
+      }
+    ],
+    "x": 360,
+    "y": 360,
+    "z": "tab-http-api",
+    "wires": [["http-response-error"]]
+  },
+  {
+    "id": "http-response-error",
+    "type": "http response",
+    "name": "Send Error Response",
+    "statusCode": "",
+    "headers": {},
+    "x": 580,
+    "y": 360,
+    "z": "tab-http-api",
+    "wires": []
+  },
+  {
+    "id": "debug-http-errors",
+    "type": "debug",
+    "name": "Log HTTP Errors",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 580,
+    "y": 420,
+    "z": "tab-http-api",
+    "wires": []
+  }
+]

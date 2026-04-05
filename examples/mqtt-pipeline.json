@@ -1,0 +1,205 @@
+[
+  {
+    "id": "mqtt-broker-cfg",
+    "type": "mqtt-broker",
+    "name": "Production MQTT Broker",
+    "broker": "${MQTT_BROKER_HOST}",
+    "port": "${MQTT_BROKER_PORT}",
+    "clientid": "nodered-pipeline-${HOSTNAME}",
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "credentials": {
+      "user": "",
+      "password": ""
+    }
+  },
+  {
+    "id": "tab-mqtt-ingest",
+    "type": "tab",
+    "label": "MQTT Ingestion",
+    "disabled": false,
+    "info": "## MQTT Sensor Ingestion Pipeline\n\nSubscribes to `sensors/#` MQTT topic, validates and normalizes incoming sensor readings, then publishes processed data to `processed/sensors` topic.\n\n**Environment Variables:**\n- `MQTT_BROKER_HOST` — MQTT broker hostname\n- `MQTT_BROKER_PORT` — MQTT broker port (default: 1883)\n- `MQTT_INPUT_TOPIC` — Input topic pattern (default: sensors/#)\n- `MQTT_OUTPUT_TOPIC` — Output topic for processed data (default: processed/sensors)\n- `MIN_VALID_VALUE` — Minimum valid sensor reading (default: -50)\n- `MAX_VALID_VALUE` — Maximum valid sensor reading (default: 1000)\n\n**Dependencies:** `mqtt-broker-cfg` config node"
+  },
+  {
+    "id": "comment-mqtt-pipeline",
+    "type": "comment",
+    "name": "MQTT Sensor Pipeline: Subscribe → Validate → Normalize → Publish",
+    "info": "Demonstrates: mqtt in, function (validation), switch (routing), change, mqtt out, status monitoring, and catch nodes.",
+    "x": 200,
+    "y": 40,
+    "z": "tab-mqtt-ingest",
+    "wires": []
+  },
+  {
+    "id": "mqtt-in-sensors",
+    "type": "mqtt in",
+    "name": "Subscribe to Sensors",
+    "topic": "${MQTT_INPUT_TOPIC}",
+    "qos": "1",
+    "datatype": "json",
+    "broker": "mqtt-broker-cfg",
+    "x": 120,
+    "y": 120,
+    "z": "tab-mqtt-ingest",
+    "wires": [["validate-sensor-msg"]]
+  },
+  {
+    "id": "validate-sensor-msg",
+    "type": "function",
+    "name": "Validate Sensor Message",
+    "func": "const data = msg.payload;\nconst MIN = parseFloat(env.get('MIN_VALID_VALUE')) || -50;\nconst MAX = parseFloat(env.get('MAX_VALID_VALUE')) || 1000;\n\n// Validate required fields\nif (!data || typeof data !== 'object') {\n    node.warn('Dropped: payload is not a JSON object');\n    return null;\n}\n\nif (!data.sensor_id) {\n    node.warn('Dropped: missing sensor_id', msg);\n    return null;\n}\n\nif (typeof data.value !== 'number') {\n    node.warn(`Dropped: value is not a number (got ${typeof data.value})`, msg);\n    return null;\n}\n\n// Range check\nif (data.value < MIN || data.value > MAX) {\n    node.warn(`Dropped: value ${data.value} out of range [${MIN}, ${MAX}]`, msg);\n    return null;\n}\n\n// Attach metadata\nmsg.sensor_id = data.sensor_id;\nmsg.received_at = Date.now();\nreturn msg;",
+    "outputs": 1,
+    "x": 320,
+    "y": 120,
+    "z": "tab-mqtt-ingest",
+    "wires": [["normalize-reading"]]
+  },
+  {
+    "id": "normalize-reading",
+    "type": "function",
+    "name": "Normalize and Enrich Reading",
+    "func": "const raw = msg.payload;\n\n// Normalize to standard schema\nmsg.payload = {\n    sensor_id: raw.sensor_id,\n    value: Math.round(raw.value * 100) / 100,  // 2 decimal places\n    unit: raw.unit || 'unknown',\n    location: raw.location || msg.topic.split('/')[1] || 'unknown',\n    quality: raw.quality || 'good',\n    received_at: msg.received_at,\n    processed_at: Date.now(),\n    source_topic: msg.topic\n};\n\nmsg.topic = env.get('MQTT_OUTPUT_TOPIC') || 'processed/sensors';\nreturn msg;",
+    "outputs": 1,
+    "x": 520,
+    "y": 120,
+    "z": "tab-mqtt-ingest",
+    "wires": [["route-by-quality"]]
+  },
+  {
+    "id": "route-by-quality",
+    "type": "switch",
+    "name": "Route by Data Quality",
+    "property": "payload.quality",
+    "propertyType": "msg",
+    "rules": [
+      { "t": "eq", "v": "good", "vt": "str" },
+      { "t": "eq", "v": "degraded", "vt": "str" },
+      { "t": "else" }
+    ],
+    "checkall": "false",
+    "repair": false,
+    "outputs": 3,
+    "x": 720,
+    "y": 120,
+    "z": "tab-mqtt-ingest",
+    "wires": [
+      ["mqtt-out-processed"],
+      ["mqtt-out-processed", "debug-degraded"],
+      ["debug-bad-quality"]
+    ]
+  },
+  {
+    "id": "mqtt-out-processed",
+    "type": "mqtt out",
+    "name": "Publish Processed Reading",
+    "topic": "",
+    "qos": "1",
+    "retain": false,
+    "broker": "mqtt-broker-cfg",
+    "x": 960,
+    "y": 100,
+    "z": "tab-mqtt-ingest",
+    "wires": []
+  },
+  {
+    "id": "debug-degraded",
+    "type": "debug",
+    "name": "Log Degraded Quality",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 960,
+    "y": 160,
+    "z": "tab-mqtt-ingest",
+    "wires": []
+  },
+  {
+    "id": "debug-bad-quality",
+    "type": "debug",
+    "name": "Log Bad Quality Readings",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 960,
+    "y": 200,
+    "z": "tab-mqtt-ingest",
+    "wires": []
+  },
+  {
+    "id": "status-mqtt-conn",
+    "type": "status",
+    "name": "Monitor MQTT Connection",
+    "scope": ["mqtt-in-sensors"],
+    "x": 140,
+    "y": 260,
+    "z": "tab-mqtt-ingest",
+    "wires": [["handle-mqtt-status"]]
+  },
+  {
+    "id": "handle-mqtt-status",
+    "type": "function",
+    "name": "Handle MQTT Status Change",
+    "func": "const status = msg.status;\nif (status.fill === 'red') {\n    node.warn(`MQTT disconnected: ${status.text}`);\n    msg.payload = {\n        event: 'mqtt_disconnect',\n        broker: env.get('MQTT_BROKER_HOST'),\n        status: status.text,\n        ts: new Date().toISOString()\n    };\n    return msg;\n} else if (status.fill === 'green') {\n    node.log(`MQTT connected: ${status.text}`);\n    return null;  // suppress normal connection messages\n}\nreturn null;",
+    "outputs": 1,
+    "x": 360,
+    "y": 260,
+    "z": "tab-mqtt-ingest",
+    "wires": [["debug-mqtt-status"]]
+  },
+  {
+    "id": "debug-mqtt-status",
+    "type": "debug",
+    "name": "Log MQTT Status Events",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 580,
+    "y": 260,
+    "z": "tab-mqtt-ingest",
+    "wires": []
+  },
+  {
+    "id": "catch-mqtt-errors",
+    "type": "catch",
+    "name": "Catch All MQTT Pipeline Errors",
+    "scope": null,
+    "uncaught": false,
+    "x": 160,
+    "y": 360,
+    "z": "tab-mqtt-ingest",
+    "wires": [["log-pipeline-error"]]
+  },
+  {
+    "id": "log-pipeline-error",
+    "type": "function",
+    "name": "Log Pipeline Error",
+    "func": "node.error(`Pipeline error in ${msg.error.source.name}: ${msg.error.message}`);\nmsg.payload = {\n    error: true,\n    source_node: msg.error.source.name,\n    source_type: msg.error.source.type,\n    message: msg.error.message,\n    original_payload: msg.payload,\n    ts: new Date().toISOString()\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 400,
+    "y": 360,
+    "z": "tab-mqtt-ingest",
+    "wires": [["debug-pipeline-errors"]]
+  },
+  {
+    "id": "debug-pipeline-errors",
+    "type": "debug",
+    "name": "Show Pipeline Errors",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 620,
+    "y": 360,
+    "z": "tab-mqtt-ingest",
+    "wires": []
+  }
+]
